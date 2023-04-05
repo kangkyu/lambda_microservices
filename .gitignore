@@ -2,7 +2,7 @@
 bin/
 
 terraform.tfstate*
-aws-lambda-go.zip
+lambda-translate.zip
 
-!product/
-product/product
+!translate/
+translate/translate

@@ -6,7 +6,7 @@ variable "aws_region" {
 }
 
 variable "lambda_function_name" {
-  default = "product"
+  default = "translate"
 }
 
 terraform {
@@ -34,11 +34,11 @@ terraform {
 
 resource "null_resource" "lambda_build" {
   triggers = {
-    source_code_md5 = filemd5("./product/main.go")
+    source_code_md5 = filemd5("./translate/main.go")
   }
 
   provisioner "local-exec" {
-    command     = "GOOS=linux GOARCH=amd64 go build -o ./bin/aws-lambda-go -C ./product"
+    command     = "GOOS=linux GOARCH=amd64 go build -o ./bin/lambda-translate -C ./translate"
     working_dir = path.module
   }
 }
@@ -48,7 +48,7 @@ provider "aws" {
 }
 
 resource "random_pet" "lambda_bucket_name" {
-  prefix = "try-lambda-microservices"
+  prefix = "lambda-as-microservice"
   length = 2
 }
 
@@ -63,11 +63,11 @@ resource "aws_s3_bucket_acl" "bucket_acl" {
   acl    = "private"
 }
 
-resource "aws_lambda_function" "product" {
+resource "aws_lambda_function" "translate" {
   function_name    = var.lambda_function_name
   s3_bucket        = aws_s3_bucket.lambda_bucket.id
   s3_key           = aws_s3_object.file_upload.key
-  handler          = "aws-lambda-go"
+  handler          = "lambda-translate"
   source_code_hash = data.archive_file.zip.output_base64sha256
   role             = aws_iam_role.role_lambda.arn
   runtime          = "go1.x"
@@ -76,7 +76,7 @@ resource "aws_lambda_function" "product" {
 
   environment {
     variables = {
-      PRODUCT_TABLE = aws_dynamodb_table.product.name
+      PRODUCT_TABLE = aws_dynamodb_table.translate.name
     }
   }
 
@@ -120,7 +120,7 @@ resource "aws_iam_role_policy_attachment" "lambda_logs" {
 resource "aws_s3_object" "file_upload" {
   bucket = aws_s3_bucket.lambda_bucket.id
 
-  key    = "aws-lambda-go.zip"
+  key    = "lambda-translate.zip"
   source = data.archive_file.zip.output_path
 
   etag                   = data.archive_file.zip.output_md5
@@ -129,8 +129,8 @@ resource "aws_s3_object" "file_upload" {
 
 data "archive_file" "zip" {
   type        = "zip"
-  source_file = "./product/bin/aws-lambda-go"
-  output_path = "./aws-lambda-go.zip"
+  source_file = "./translate/bin/lambda-translate"
+  output_path = "./lambda-translate.zip"
   depends_on  = [null_resource.lambda_build]
 }
 
@@ -173,7 +173,7 @@ data "aws_iam_policy_document" "allow_dynamodb_lambda" {
     actions = ["dynamodb:*"]
 
     resources = [
-      aws_dynamodb_table.product.arn
+      aws_dynamodb_table.translate.arn
     ]
 
     effect = "Allow"
@@ -190,7 +190,7 @@ resource "aws_api_gateway_rest_api" "gateway_api" {
 }
 
 resource "aws_api_gateway_resource" "resource" {
-  path_part   = "product"
+  path_part   = "translate"
   parent_id   = aws_api_gateway_rest_api.gateway_api.root_resource_id
   rest_api_id = aws_api_gateway_rest_api.gateway_api.id
 }
@@ -205,19 +205,19 @@ resource "aws_api_gateway_method" "method" {
 resource "aws_lambda_permission" "allow_api" {
   statement_id  = "permitLambdaInvokeFunction"
   action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.product.function_name
+  function_name = aws_lambda_function.translate.function_name
   principal     = "apigateway.amazonaws.com"
 
   source_arn = "${aws_api_gateway_rest_api.gateway_api.execution_arn}/*/*/*"
 }
 
-resource "aws_dynamodb_table" "product" {
-  name         = "product"
-  hash_key     = "product_id"
+resource "aws_dynamodb_table" "translate" {
+  name         = "translate"
+  hash_key     = "translate_id"
   billing_mode = "PAY_PER_REQUEST"
 
   attribute {
-    name = "product_id"
+    name = "translate_id"
     type = "S"
   }
 
@@ -261,5 +261,5 @@ resource "aws_api_gateway_integration" "integration" {
   http_method             = aws_api_gateway_method.method.http_method
   integration_http_method = "POST"
   type                    = "AWS_PROXY"
-  uri                     = aws_lambda_function.product.invoke_arn
+  uri                     = aws_lambda_function.translate.invoke_arn
 }
