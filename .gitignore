@@ -1,0 +1,8 @@
+.terraform/
+bin/
+
+terraform.tfstate*
+aws-lambda-go.zip
+
+!product/
+product/product
