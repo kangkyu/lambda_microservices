@@ -21,8 +21,8 @@ type timeEvent struct {
 }
 
 func handleRequest(ctx context.Context, request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-	tableName := os.Getenv("PRODUCT_TABLE")
-	queueName := os.Getenv("SENTENCE_QUEUE")
+	tableName := os.Getenv("TRANSLATE_TABLE")
+	queueUrl := os.Getenv("SENTENCE_QUEUE_URL")
 
 	switch request.HTTPMethod {
 	case "GET":
@@ -76,17 +76,21 @@ func handleRequest(ctx context.Context, request events.APIGatewayProxyRequest) (
 		// send it to sqs
 		sqsClient := sqs.NewFromConfig(cfg)
 
-		getUrlInput := sqs.GetQueueUrlInput{
-			QueueName: aws.String(queueName),
-		}
-		getUrlOutput, err := sqsClient.GetQueueUrl(ctx, &getUrlInput)
+		// getUrlInput := sqs.GetQueueUrlInput{
+		// 	QueueName: aws.String(queueName),
+		// }
+		// getUrlOutput, err := sqsClient.GetQueueUrl(ctx, &getUrlInput)
+		// getUrlOutput.QueueUrl
 
 		messageBody := "hello"
 		sendMessageInput := sqs.SendMessageInput{
 			MessageBody: &messageBody,
-			QueueUrl:    getUrlOutput.QueueUrl,
+			QueueUrl:    aws.String(queueUrl),
 		}
 		_, err = sqsClient.SendMessage(ctx, &sendMessageInput)
+		if err != nil {
+			return events.APIGatewayProxyResponse{}, err
+		}
 
 		return events.APIGatewayProxyResponse{
 			StatusCode: http.StatusCreated,

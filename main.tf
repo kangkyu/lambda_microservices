@@ -58,7 +58,16 @@ resource "aws_s3_bucket" "lambda_bucket" {
   force_destroy = true
 }
 
+resource "aws_s3_bucket_ownership_controls" "ownership" {
+  bucket = aws_s3_bucket.lambda_bucket.id
+  rule {
+    object_ownership = "BucketOwnerPreferred"
+  }
+}
+
 resource "aws_s3_bucket_acl" "bucket_acl" {
+  depends_on = [aws_s3_bucket_ownership_controls.ownership]
+
   bucket = aws_s3_bucket.lambda_bucket.id
   acl    = "private"
 }
@@ -76,7 +85,8 @@ resource "aws_lambda_function" "translate" {
 
   environment {
     variables = {
-      PRODUCT_TABLE = aws_dynamodb_table.translate.name
+      TRANSLATE_TABLE    = aws_dynamodb_table.translate.name
+      SENTENCE_QUEUE_URL = aws_sqs_queue.write_queue.id
     }
   }
 
@@ -87,7 +97,7 @@ resource "aws_lambda_function" "translate" {
 }
 
 resource "aws_cloudwatch_log_group" "log_group" {
-  name              = "/aws/lambda/${var.lambda_function_name}-logs"
+  name              = "/aws/lambda/${var.lambda_function_name}"
   retention_in_days = 14
 }
 
@@ -190,7 +200,7 @@ resource "aws_api_gateway_rest_api" "gateway_api" {
 }
 
 resource "aws_api_gateway_resource" "resource" {
-  path_part   = "translate"
+  path_part   = "{proxy+}"
   parent_id   = aws_api_gateway_rest_api.gateway_api.root_resource_id
   rest_api_id = aws_api_gateway_rest_api.gateway_api.id
 }
@@ -209,6 +219,11 @@ resource "aws_lambda_permission" "allow_api" {
   principal     = "apigateway.amazonaws.com"
 
   source_arn = "${aws_api_gateway_rest_api.gateway_api.execution_arn}/*/*/*"
+}
+
+resource "aws_sqs_queue" "write_queue" {
+  name                    = "sentence"
+  sqs_managed_sse_enabled = true
 }
 
 resource "aws_dynamodb_table" "translate" {
