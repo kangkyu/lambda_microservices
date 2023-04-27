@@ -13,6 +13,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/aws/aws-sdk-go-v2/service/sqs"
 )
 
 type timeEvent struct {
@@ -21,6 +22,7 @@ type timeEvent struct {
 
 func handleRequest(ctx context.Context, request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
 	tableName := os.Getenv("PRODUCT_TABLE")
+	queueName := os.Getenv("SENTENCE_QUEUE")
 
 	switch request.HTTPMethod {
 	case "GET":
@@ -41,7 +43,6 @@ func handleRequest(ctx context.Context, request events.APIGatewayProxyRequest) (
 			return events.APIGatewayProxyResponse{}, err
 		}
 
-		dynamoClient := dynamodb.NewFromConfig(cfg)
 		body := make(map[string]string)
 		if json.Valid([]byte(request.Body)) {
 			json.Unmarshal([]byte(request.Body), &body)
@@ -55,11 +56,14 @@ func handleRequest(ctx context.Context, request events.APIGatewayProxyRequest) (
 		if err != nil {
 			return events.APIGatewayProxyResponse{}, err
 		}
-		input := &dynamodb.PutItemInput{
+
+		// save to dynamodb
+		dynamoClient := dynamodb.NewFromConfig(cfg)
+		putItemInput := dynamodb.PutItemInput{
 			TableName: aws.String(tableName),
 			Item:      item,
 		}
-		output, err := dynamoClient.PutItem(ctx, input)
+		output, err := dynamoClient.PutItem(ctx, &putItemInput)
 		if err != nil {
 			return events.APIGatewayProxyResponse{}, err
 		}
@@ -68,6 +72,21 @@ func handleRequest(ctx context.Context, request events.APIGatewayProxyRequest) (
 		if err != nil {
 			return events.APIGatewayProxyResponse{}, err
 		}
+
+		// send it to sqs
+		sqsClient := sqs.NewFromConfig(cfg)
+
+		getUrlInput := sqs.GetQueueUrlInput{
+			QueueName: aws.String(queueName),
+		}
+		getUrlOutput, err := sqsClient.GetQueueUrl(ctx, &getUrlInput)
+
+		messageBody := "hello"
+		sendMessageInput := sqs.SendMessageInput{
+			MessageBody: &messageBody,
+			QueueUrl:    getUrlOutput.QueueUrl,
+		}
+		_, err = sqsClient.SendMessage(ctx, &sendMessageInput)
 
 		return events.APIGatewayProxyResponse{
 			StatusCode: http.StatusCreated,
