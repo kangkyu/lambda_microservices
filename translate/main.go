@@ -42,9 +42,16 @@ func handleRequest(ctx context.Context, request events.APIGatewayProxyRequest) (
 		}
 
 		dynamoClient := dynamodb.NewFromConfig(cfg)
-		item, err := attributevalue.MarshalMap(map[string]string{
-			"product_id": "you-know-what",
-		})
+		body := make(map[string]string)
+		if json.Valid([]byte(request.Body)) {
+			json.Unmarshal([]byte(request.Body), &body)
+		} else {
+			return events.APIGatewayProxyResponse{
+				StatusCode: http.StatusBadRequest,
+				Body:       "",
+			}, nil
+		}
+		item, err := attributevalue.MarshalMap(body)
 		if err != nil {
 			return events.APIGatewayProxyResponse{}, err
 		}
@@ -63,7 +70,7 @@ func handleRequest(ctx context.Context, request events.APIGatewayProxyRequest) (
 		}
 
 		return events.APIGatewayProxyResponse{
-			StatusCode: http.StatusOK,
+			StatusCode: http.StatusCreated,
 			Body:       string(a),
 		}, nil
 	}

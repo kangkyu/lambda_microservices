@@ -1,4 +1,4 @@
-module lambda_microservices/product
+module lambda_microservices/translate
 
 go 1.19
 
