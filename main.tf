@@ -224,6 +224,20 @@ resource "aws_lambda_permission" "allow_api" {
 resource "aws_sqs_queue" "write_queue" {
   name                    = "sentence"
   sqs_managed_sse_enabled = true
+
+  policy = <<POLICY
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": "*",
+      "Action": "sqs:SendMessage",
+      "Resource": "arn:aws:sqs:*:*:sentence"
+    }
+  ]
+}
+  POLICY
 }
 
 resource "aws_dynamodb_table" "translate" {
