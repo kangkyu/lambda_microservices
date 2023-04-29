@@ -63,12 +63,7 @@ func handleRequest(ctx context.Context, request events.APIGatewayProxyRequest) (
 			TableName: aws.String(tableName),
 			Item:      item,
 		}
-		output, err := dynamoClient.PutItem(ctx, &putItemInput)
-		if err != nil {
-			return events.APIGatewayProxyResponse{}, err
-		}
-		attrs := output.Attributes
-		a, err := json.Marshal(attrs)
+		_, err := dynamoClient.PutItem(ctx, &putItemInput)
 		if err != nil {
 			return events.APIGatewayProxyResponse{}, err
 		}
@@ -76,13 +71,7 @@ func handleRequest(ctx context.Context, request events.APIGatewayProxyRequest) (
 		// send it to sqs
 		sqsClient := sqs.NewFromConfig(cfg)
 
-		// getUrlInput := sqs.GetQueueUrlInput{
-		// 	QueueName: aws.String(queueName),
-		// }
-		// getUrlOutput, err := sqsClient.GetQueueUrl(ctx, &getUrlInput)
-		// getUrlOutput.QueueUrl
-
-		messageBody := "hello"
+		messageBody := "hello" // temporary translated sentence
 		sendMessageInput := sqs.SendMessageInput{
 			MessageBody: &messageBody,
 			QueueUrl:    aws.String(queueUrl),
@@ -94,7 +83,7 @@ func handleRequest(ctx context.Context, request events.APIGatewayProxyRequest) (
 
 		return events.APIGatewayProxyResponse{
 			StatusCode: http.StatusCreated,
-			Body:       string(a),
+			Body:       "successful",
 		}, nil
 	}
 
