@@ -1,8 +1,7 @@
 variable "aws_region" {
   description = "AWS region for all resources"
-
-  type    = string
-  default = "us-west-2"
+  type        = string
+  default     = "us-west-2"
 }
 
 variable "lambda_function_name" {
@@ -13,15 +12,15 @@ terraform {
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = "~> 4.61"
+      version = "~> 5.31"
     }
     random = {
       source  = "hashicorp/random"
-      version = "~> 3.4.3"
+      version = "~> 3.6.0"
     }
     archive = {
       source  = "hashicorp/archive"
-      version = "~> 2.3.0"
+      version = "~> 2.4.0"
     }
   }
 
@@ -29,7 +28,7 @@ terraform {
     path = "terraform.tfstate"
   }
 
-  required_version = "1.4.4"
+  required_version = ">= 1.7.0"
 }
 
 resource "null_resource" "lambda_build" {
@@ -53,23 +52,24 @@ resource "random_pet" "lambda_bucket_name" {
 }
 
 resource "aws_s3_bucket" "lambda_bucket" {
-  bucket = random_pet.lambda_bucket_name.id
-
+  bucket        = random_pet.lambda_bucket_name.id
   force_destroy = true
 }
 
 resource "aws_s3_bucket_ownership_controls" "ownership" {
   bucket = aws_s3_bucket.lambda_bucket.id
   rule {
-    object_ownership = "BucketOwnerPreferred"
+    object_ownership = "BucketOwnerEnforced"
   }
 }
 
-resource "aws_s3_bucket_acl" "bucket_acl" {
-  depends_on = [aws_s3_bucket_ownership_controls.ownership]
-
+resource "aws_s3_bucket_server_side_encryption_configuration" "encryption" {
   bucket = aws_s3_bucket.lambda_bucket.id
-  acl    = "private"
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
 }
 
 resource "aws_lambda_function" "translate" {
@@ -78,15 +78,15 @@ resource "aws_lambda_function" "translate" {
   s3_key           = aws_s3_object.file_upload.key
   handler          = "lambda-translate"
   source_code_hash = data.archive_file.zip.output_base64sha256
-  role             = aws_iam_role.role_lambda.arn
-  runtime          = "go1.x"
-  memory_size      = 128
-  timeout          = 10
+  role            = aws_iam_role.role_lambda.arn
+  runtime         = "go1.x"
+  memory_size     = 128
+  timeout         = 10
 
   environment {
     variables = {
       TRANSLATE_TABLE    = aws_dynamodb_table.translate.name
-      SENTENCE_QUEUE_URL = aws_sqs_queue.write_queue.id
+      SENTENCE_QUEUE_URL = aws_sqs_queue.write_queue.url
     }
   }
 
@@ -104,13 +104,11 @@ resource "aws_cloudwatch_log_group" "log_group" {
 data "aws_iam_policy_document" "lambda_logging" {
   statement {
     effect = "Allow"
-
     actions = [
       "logs:CreateLogGroup",
       "logs:CreateLogStream",
       "logs:PutLogEvents",
     ]
-
     resources = ["arn:aws:logs:*:*:*"]
   }
 }
@@ -129,11 +127,10 @@ resource "aws_iam_role_policy_attachment" "lambda_logs" {
 
 resource "aws_s3_object" "file_upload" {
   bucket = aws_s3_bucket.lambda_bucket.id
-
   key    = "lambda-translate.zip"
   source = data.archive_file.zip.output_path
+  etag   = data.archive_file.zip.output_md5
 
-  etag                   = data.archive_file.zip.output_md5
   server_side_encryption = "AES256"
 }
 
@@ -146,48 +143,34 @@ data "archive_file" "zip" {
 
 resource "aws_iam_role" "role_lambda" {
   name = "role_lambda"
-
-  assume_role_policy = data.aws_iam_policy_document.allow_lambda.json
-}
-
-data "aws_iam_policy_document" "allow_lambda" {
-  version = "2012-10-17"
-
-  statement {
-    sid = ""
-
-    actions = ["sts:AssumeRole"]
-
-    principals {
-      type        = "Service"
-      identifiers = ["lambda.amazonaws.com"]
-    }
-
-    effect = "Allow"
-  }
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = "sts:AssumeRole"
+        Effect = "Allow"
+        Principal = {
+          Service = "lambda.amazonaws.com"
+        }
+      }
+    ]
+  })
 }
 
 resource "aws_iam_role_policy" "policy_dynamodb_lambda" {
   name = "policy_dynamodb_lambda"
   role = aws_iam_role.role_lambda.id
 
-  policy = data.aws_iam_policy_document.allow_dynamodb_lambda.json
-}
-
-data "aws_iam_policy_document" "allow_dynamodb_lambda" {
-  version = "2012-10-17"
-
-  statement {
-    sid = ""
-
-    actions = ["dynamodb:*"]
-
-    resources = [
-      aws_dynamodb_table.translate.arn
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = ["dynamodb:*"]
+        Resource = [aws_dynamodb_table.translate.arn]
+      }
     ]
-
-    effect = "Allow"
-  }
+  })
 }
 
 resource "aws_iam_role_policy_attachment" "lambda_policy" {
@@ -217,27 +200,24 @@ resource "aws_lambda_permission" "allow_api" {
   action        = "lambda:InvokeFunction"
   function_name = aws_lambda_function.translate.function_name
   principal     = "apigateway.amazonaws.com"
-
-  source_arn = "${aws_api_gateway_rest_api.gateway_api.execution_arn}/*/*/*"
+  source_arn    = "${aws_api_gateway_rest_api.gateway_api.execution_arn}/*/*/*"
 }
 
 resource "aws_sqs_queue" "write_queue" {
   name                    = "sentence"
   sqs_managed_sse_enabled = true
 
-  policy = <<POLICY
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Principal": "*",
-      "Action": "sqs:SendMessage",
-      "Resource": "arn:aws:sqs:*:*:sentence"
-    }
-  ]
-}
-  POLICY
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Principal = "*"
+        Action = "sqs:SendMessage"
+        Resource = "arn:aws:sqs:*:*:sentence"
+      }
+    ]
+  })
 }
 
 resource "aws_dynamodb_table" "translate" {
@@ -253,12 +233,8 @@ resource "aws_dynamodb_table" "translate" {
   server_side_encryption {
     enabled = true
   }
-}
 
-output "base_url" {
-  description = "Base URL for API Gateway"
-
-  value = aws_api_gateway_stage.lambda.invoke_url
+  deletion_protection_enabled = true
 }
 
 resource "aws_api_gateway_stage" "lambda" {
@@ -291,4 +267,9 @@ resource "aws_api_gateway_integration" "integration" {
   integration_http_method = "POST"
   type                    = "AWS_PROXY"
   uri                     = aws_lambda_function.translate.invoke_arn
+}
+
+output "base_url" {
+  description = "Base URL for API Gateway"
+  value       = aws_api_gateway_stage.lambda.invoke_url
 }
