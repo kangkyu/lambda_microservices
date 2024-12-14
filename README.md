@@ -2,6 +2,9 @@
 
 Use AWS Lambda as microservice, and build event-driven structure.
 
+
+Install terraform https://developer.hashicorp.com/terraform/install
+
 ```sh
 terraform init
 AWS_PROFILE=admin terraform apply
