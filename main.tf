@@ -12,7 +12,7 @@ terraform {
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = "~> 5.31"
+      version = "~> 5.88"
     }
     random = {
       source  = "hashicorp/random"
@@ -28,7 +28,7 @@ terraform {
     path = "terraform.tfstate"
   }
 
-  required_version = ">= 1.7.0"
+  required_version = ">= 1.10.2"
 }
 
 resource "null_resource" "lambda_build" {
@@ -44,6 +44,28 @@ resource "null_resource" "lambda_build" {
 
 provider "aws" {
   region = var.aws_region
+}
+
+resource "aws_iam_role" "translate_role" {
+  name = "aws-translate-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = "sts:AssumeRole"
+        Effect = "Allow"
+        Principal = {
+          Service = "translate.amazonaws.com"
+        }
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "translate_policy" {
+  role       = aws_iam_role.translate_role.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/TranslateFullAccess"
 }
 
 resource "random_pet" "lambda_bucket_name" {
